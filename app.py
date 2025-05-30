@@ -8,6 +8,8 @@ import seaborn as sns
 import os
 import requests
 from geo_public import extract_sample_groups
+import io
+from google.cloud import vision
 
 
 # st.title("DEG Analysis from GEO Dataset")
@@ -51,6 +53,7 @@ def load_geo(geo_id):
 
     try:
         gse = GEOparse.get_GEO(geo=geo_id, destdir="./data", how="full")
+        
     except Exception as e:
         st.warning(f"FTP failed: {e}. Trying manual download...")
         filepath = download_soft_file(geo_id)
@@ -71,13 +74,26 @@ def load_geo(geo_id):
 
 
 st.title("DEG Analysis from GEO Dataset")
+geo_options = {
+"Breast Cancer vs. Normal (GSE15852)": "GSE15852",
+"Cervical Cancer vs. Normal (GSE6791)": "GSE6791",
+"Multiple Cancers vs. Normal (GSE5364)": "GSE5364",
+"Ductal Carcinoma in Situ (GSE10950)": "GSE10950",
+"Lung Cancer vs. Normal (GSE19188)": "GSE19188",
+"Bladder Cancer (GSE109169)": "GSE109169",
+"Prostate Cancer (GSE3325)": "GSE3325"
+}
+selected_label = st.selectbox("Select a GEO Dataset for Analysis", list(geo_options.keys()))
+geo_id = geo_options[selected_label]
 
-geo_id = st.text_input("Enter GEO Series ID (e.g., GSE7305)", value="GSE10950")
+st.write(f"Selected GEO ID: {geo_id}")
+
+# geo_id = st.text_input("Enter GEO Series ID (e.g., GSE7305)", value="GSE10950")
 
 if geo_id:
     gse, annotation, samples = load_geo(geo_id)
     st.success(f"Loaded {len(samples)} samples from {geo_id}")
-    group_labels = extract_sample_groups(gse)
+    sample_labels,  group_labels = extract_sample_groups(gse)
     # for gsm_id, gsm in gse.gsms.items():
     #     st.write(f"Sample ID: {gsm_id}")
     #     st.write(gsm.metadata)
@@ -104,14 +120,31 @@ if geo_id:
     st.dataframe(annotation.head())
 
     # Add group selection widgets
-    group_a_display = st.multiselect("Select samples for group A (e.g., Healthy)", display_samples)
-    group_b_display = st.multiselect("Select samples for group B (e.g., Disease)", display_samples)
+    st.subheader("Assign Groups")
+    # Correct unpacking
+    sample_labels, group_dict = extract_sample_groups(gse)
+
+# sample_labels is dict: {gsm_id: "gsm_id (label)"}
+# group_dict is dict: {label: [gsm_id list]}
+
+    display_samples = list(sample_labels.values())
+
+    group_a_display = st.multiselect(
+        "Select samples for Group A (e.g., Healthy)",
+        options=[sample_labels[gsm] for gsm in group_dict.get("Healthy", [])]
+    )
+
+    group_b_display = st.multiselect(
+        "Select samples for Group B (e.g., Disease)",
+        options=[sample_labels[gsm] for gsm in group_dict.get("Disease", [])]
+    )
 
     def extract_gsm(selected_list):
-        return [s.split(" (")[0] for s in selected_list]
+        return [s.split(" ")[0] for s in selected_list]
 
     group_a = extract_gsm(group_a_display)
     group_b = extract_gsm(group_b_display)
+
 
     if group_a and group_b:
         st.write("Extracting expression data...")
@@ -145,16 +178,66 @@ if geo_id:
         sns.scatterplot(data=results, x="logFC", y="-log10(pval)", hue=results["pvalue"] < 0.05, ax=ax)
         plt.axhline(y=-np.log10(0.05), color='red', linestyle='--')
         st.pyplot(fig)
+        
+                # --- Heatmap of Differential Expression ---
+        st.subheader("Heatmap of Top Differentially Expressed Genes")
+        num_genes = st.slider("Number of top genes to show in heatmap", min_value=10, max_value=50, value=20, step=1)
+
+        # Get top N genes by p-value
+# Get top N genes by p-value (use index if symbol is missing)
+        top_gene_indices = results.sort_values("pvalue").head(num_genes).index
+
+        # Get expression data for these genes (use all samples)
+        heatmap_data = expression_data.loc[top_gene_indices]
+
+        # Remove the Symbol column for plotting if it exists
+        if "Symbol" in heatmap_data.columns:
+            heatmap_matrix = heatmap_data.drop(columns=["Symbol"])
+        else:
+            heatmap_matrix = heatmap_data.copy()
+
+        # Z-score normalize each gene (row) for better visualization
+        if not heatmap_matrix.empty:
+            heatmap_matrix = heatmap_matrix.sub(heatmap_matrix.mean(axis=1), axis=0)
+            heatmap_matrix = heatmap_matrix.div(heatmap_matrix.std(axis=1), axis=0)
+            # Set probe IDs as row labels
+            heatmap_matrix.index = top_gene_indices
+
+            fig, ax = plt.subplots(figsize=(min(1.5 + 0.3 * len(heatmap_matrix.columns), 20), min(0.5 * num_genes, 20)))
+            sns.heatmap(heatmap_matrix, cmap="vlag", ax=ax, cbar_kws={'label': 'Z-score'})
+            ax.set_title(f"Top {num_genes} Differentially Expressed Probes (Z-score)")
+            ax.set_xlabel("Sample")
+            ax.set_ylabel("Probe ID")
+            st.pyplot(fig)
+        else:
+            st.warning("No valid genes found for heatmap. Try increasing the number of top genes or check your data.")
+
 
         selected_samples = st.multiselect("Select samples for boxplot", display_samples)
 
+        # if selected_samples:
+        #     selected_samples_clean = [s.split(" (")[0] for s in selected_samples]
+        #     data_for_plot = expression_data[selected_samples_clean]
+        #     # Ensure labels match columns
+        #     labels = [sample_labels[gsm] for gsm in selected_samples_clean]
+        #     st.write(f"Data shape: {data_for_plot.shape}")
+        #     st.write(f"Number of labels: {len(labels)}")
+        #     fig, ax = plt.subplots(figsize=(10, 6))
+        #     ax.boxplot(data_for_plot.values, labels=labels, vert=True)
+        #     ax.set_title("Expression Value Distribution per Sample")
+        #     ax.set_ylabel("Expression Value")
+        #     ax.set_xlabel("Samples")
+        #     plt.xticks(rotation=45)
+        #     plt.tight_layout()
+        #     st.pyplot(fig)
         if selected_samples:
             selected_samples_clean = [s.split(" (")[0] for s in selected_samples]
             data_for_plot = expression_data[selected_samples_clean]
+            labels = [sample_labels[gsm] for gsm in selected_samples_clean]
             st.write(f"Data shape: {data_for_plot.shape}")
-            st.write(f"Number of labels: {len(selected_samples)}")
+            st.write(f"Number of labels: {len(labels)}")
             fig, ax = plt.subplots(figsize=(10, 6))
-            ax.boxplot(data_for_plot.values.T, labels=selected_samples, vert=True)
+            ax.boxplot(data_for_plot.values, labels=labels, vert=True)
             ax.set_title("Expression Value Distribution per Sample")
             ax.set_ylabel("Expression Value")
             ax.set_xlabel("Samples")
