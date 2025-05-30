@@ -72,7 +72,7 @@ def load_geo(geo_id):
 
 st.title("DEG Analysis from GEO Dataset")
 
-geo_id = st.text_input("Enter GEO Series ID (e.g., GSE7305)", value="GSE7306")
+geo_id = st.text_input("Enter GEO Series ID (e.g., GSE7305)", value="GSE10950")
 
 if geo_id:
     gse, annotation, samples = load_geo(geo_id)

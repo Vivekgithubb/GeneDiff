@@ -6,7 +6,7 @@ def extract_sample_groups(gse):
         # Try title metadata
         title = gsm.metadata.get('title', ['Unknown'])[0].lower()
         
-        if 'healthy' in title or 'normal' in title:
+        if 'healthy' in title or 'normal' in title or 'TNBC' in title:
             group_labels[gsm_id] = "Healthy"
         elif 'disease' in title or 'cancer' in title or 'tumor' in title:
             group_labels[gsm_id] = "Disease"
