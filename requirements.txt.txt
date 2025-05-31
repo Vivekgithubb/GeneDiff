@@ -1,0 +1,10 @@
+streamlit
+GEOparse
+numpy
+pandas
+scipy
+matplotlib
+seaborn
+requests
+scikit-learn
+google-cloud-vision
