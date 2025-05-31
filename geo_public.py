@@ -1,33 +1,45 @@
-import streamlit as st
+import streamlit as st 
 
 def extract_sample_groups(gse):
-    group_labels = {}
+    sample_labels = {}
+    group_dict = {"Healthy": [], "Disease": [], "Unknown": []}
+
     for gsm_id, gsm in gse.gsms.items():
-        # Try title metadata
-        title = gsm.metadata.get('title', ['Unknown'])[0].lower()
-        
-        if 'healthy' in title or 'normal' in title or 'TNBC' in title:
-            group_labels[gsm_id] = "Healthy"
-        elif 'disease' in title or 'cancer' in title or 'tumor' in title:
-            group_labels[gsm_id] = "Disease"
+        title = gsm.metadata.get("title", [""])[0].lower()
+        characteristics = " ".join(gsm.metadata.get("characteristics_ch1", [])).lower()
+        full_text = f"{title} {characteristics}"
+
+        label = "Unknown"
+        disease_type = None
+
+        # Try to infer label
+        if any(x in full_text for x in ["healthy", "normal", "control"]):
+            label = "Healthy"
+        elif any(x in full_text for x in ["disease", "cancer", "tumor", "carcinoma", "malignant", "sarcoma", "adenoma"]):
+            label = "Disease"
+
+            # Extract possible disease type dynamically from title or characteristics
+            tokens = title.split() + characteristics.split()
+            disease_keywords = [word.capitalize() for word in tokens if word not in ("disease", "tumor", "cancer", "sample") and len(word) > 3]
+
+            if disease_keywords:
+                disease_type = disease_keywords[0]  # pick the first valid word as hint
+
+        if label == "Disease" and disease_type:
+            display_label = f"Disease ({disease_type})"
+        elif label != "Unknown":
+            display_label = label
         else:
-            # Try characteristics field if title not useful
-            characteristics = gsm.metadata.get('characteristics_ch1', [])
-            # This is a list, try to find group name
-            label_found = False
-            for c in characteristics:
-                c_lower = c.lower()
-                if 'healthy' in c_lower or 'normal' in c_lower:
-                    group_labels[gsm_id] = "Healthy"
-                    label_found = True
-                    break
-                elif 'disease' in c_lower or 'cancer' in c_lower or 'tumor' in c_lower:
-                    group_labels[gsm_id] = "Disease"
-                    label_found = True
-                    break
-            if not label_found:
-                group_labels[gsm_id] = "Unknown"
+            display_label = "Unknown"
 
-    st.write("All sample IDs in GEO dataset:", list(gse.gsms.keys()))
+        # if label == "Healthy" and disease_type:
+        #     display_label = f"Healthy ({disease_type})"
+        # elif label != "Unknown":
+        #     display_label = label
+        # else:
+        #     display_label = "Unknown"
 
-    return group_labels
+        sample_labels[gsm_id] = f"{gsm_id} ({display_label})"
+        group_dict[label].append(gsm_id)
+
+    return sample_labels, group_dict
