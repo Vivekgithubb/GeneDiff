@@ -9,7 +9,7 @@ import os
 import requests
 from geo_public import extract_sample_groups
 from sklearn.decomposition import PCA
-
+import io
 
 # st.markdown(
 #     """
