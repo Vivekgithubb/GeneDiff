@@ -161,9 +161,17 @@ if geo_id:
         link = f"[{gsm_id}]({url})"
         md_table += f"| {link} | {title} |\n"
     st.markdown(md_table, unsafe_allow_html=True)
-    st.write("Annotation preview:")
+    st.subheader("Annotation preview:")
+    st.write("This table shows the annotation data for the GEO dataset, including gene symbols and IDs.")
+    st.write("Each row: Represents a probe (a unique DNA sequence on the chip that measures gene expression).")
+    st.write("Columns: Contain information about the probe, such as its ID, gene symbol, and other metadata.")
+    st.write("ID: The probe ID (e.g., 1552287_at) " )
+    st.write("Gene Symbol: The standard gene name the probe is designed to detect (e.g., TP53) " )
+    st.write("Gene Title/Description: A brief description of the gene " )
+    st.write("Chromosome, Location, etc. Genomic information about where the gene is found" )
+    st.write( " Other columns: May include RefSeq IDs, Ensembl IDs, or other database cross-references")
     st.dataframe(annotation.head())
-
+    st.write("In summary: The annotation table is a reference sheet that explains what each probe on the microarray measures, linking probe IDs to gene names and other biological information. It is essential for interpreting your gene expression results in a meaningful, biological context.")
     # Add group selection widgets
     st.subheader("Assign Groups")
     # Correct unpacking
