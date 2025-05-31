@@ -99,7 +99,6 @@ def plot_ma(results, expression_data, group_a, group_b):
     ax.set_xlabel('Mean Expression')
     ax.set_ylabel('log2 Fold Change')
     ax.set_title('MA Plot')
-    ax.legend(title='Significant (p<0.05)', labels=['Not Significant', 'Significant'])
     st.pyplot(fig)
 
 @st.cache_data
@@ -321,27 +320,33 @@ Focus on genes with large absolute logFC and low p-values for biological interpr
             st.subheader("Volcano Plot")
             st.markdown("""
 **Summary:**  
-The volcano plot visualizes both the magnitude of change and the statistical significance for all genes.
+A volcano plot is a type of scatter plot that helps you quickly identify genes that are both statistically significant and have large fold changes between two groups.
 
 **Axes:**  
 - **X-axis (logFC):**  
   - Log2 fold change between groups.
-  - Positive: Higher in Group B (e.g., Disease).
-  - Negative: Higher in Group A (e.g., Healthy).
+  - Positive values: Higher expression in Group B (e.g., Disease).
+  - Negative values: Higher expression in Group A (e.g., Healthy).
 - **Y-axis (-log10(p-value)):**  
-  - The negative log10 of the p-value.
-  - Higher values = more statistically significant.
+  - The negative log10 of the p-value for each gene.
+  - Higher values mean more statistically significant differences.
 
 **Colors:**  
 - **Red points:** Genes with p-value < 0.05 (statistically significant).
 - **Gray points:** Genes not meeting the significance threshold.
+
+**What does this plot show?**  
+- Genes far from zero on the x-axis have large differences in expression between groups.
+- Genes high on the y-axis are more statistically significant.
+- Genes that are both far from zero (large logFC) and high (low p-value) are the most interesting biologically.
 
 **Assumptions:**  
 - Each gene is tested independently.
 - The p-value threshold (0.05) is used for significance, but multiple testing correction is not applied here.
 
 **How to use:**  
-Genes far from zero on the x-axis and high on the y-axis are the most interesting (large, significant changes).
+- Look for red points far from zero on the x-axis and high on the y-axis—these are your top candidate genes.
+- Use this plot to prioritize genes for further study or validation.
             """)
             fig, ax = plt.subplots()
             sns.scatterplot(data=results, x="logFC", y="-log10(pval)", hue=results["pvalue"] < 0.05, ax=ax)
@@ -353,22 +358,30 @@ Genes far from zero on the x-axis and high on the y-axis are the most interestin
             st.subheader("Heatmap of Top Differentially Expressed Genes")
             st.markdown("""
 **Summary:**  
-This heatmap shows the expression patterns of the top N most differentially expressed genes across all samples.
+A heatmap is a graphical representation of data where individual values are represented as colors. Here, it shows the expression patterns of the top N most differentially expressed genes across all samples in your dataset.
 
 **Axes:**  
-- **Rows:** Genes/probes (top N by significance).
-- **Columns:** Samples.
+- **Rows:** Each row represents a gene or probe (specifically, the top N genes ranked by statistical significance).
+- **Columns:** Each column represents a sample from your dataset.
 
 **Colors:**  
-- **Red:** Higher-than-average expression (Z-score > 0).
-- **Blue:** Lower-than-average expression (Z-score < 0).
+- **Red (or lighter colors):** Higher-than-average expression for that gene in that sample (Z-score > 0).
+- **Blue (or darker colors):** Lower-than-average expression for that gene in that sample (Z-score < 0).
+- The color scale is based on Z-score normalization, which centers and scales each gene’s expression values so you can compare patterns across genes.
+
+**What does this plot show?**  
+- **Clusters of samples:** If columns (samples) group together with similar color patterns, it suggests those samples have similar gene expression profiles—often reflecting biological similarity (e.g., all Disease samples clustering together).
+- **Clusters of genes:** If rows (genes) group together, it suggests those genes behave similarly across samples, which may indicate shared biological function.
+- **Outliers:** Samples or genes with very different color patterns may be outliers or have unique biology.
 
 **Assumptions:**  
-- Expression values are Z-score normalized for each gene (row).
-- Only the top N genes (by p-value) are shown for clarity.
+- Only the top N genes (by p-value) are shown for clarity and interpretability.
+- Expression values are Z-score normalized for each gene (row), so differences reflect relative, not absolute, expression.
 
 **How to use:**  
-Look for clusters of samples or genes with similar expression patterns. Grouped clustering may indicate strong biological differences.
+- Look for blocks of color that indicate groups of samples or genes with similar expression.
+- Check if your sample groups (e.g., Healthy vs. Disease) cluster together, which supports biological differences.
+- Investigate outliers or unexpected patterns for possible technical issues or novel findings.
             """)
             num_genes = st.slider("Number of top genes to show in heatmap", min_value=10, max_value=50, value=20, step=1)
             top_gene_indices = results.sort_values("pvalue").head(num_genes).index
@@ -435,24 +448,35 @@ Compare the spread and median of each sample. Large differences may indicate bat
             st.subheader("PCA Plot: Sample Clustering")
             st.markdown("""
 **Summary:**  
-Principal Component Analysis (PCA) reduces the complexity of the data to visualize how samples cluster based on their overall gene expression.
+Principal Component Analysis (PCA) is a statistical technique that reduces the complexity of high-dimensional data (like gene expression) to just a few dimensions, making it easier to visualize patterns and clusters among samples.
 
 **Axes:**  
-- **PC1:** The direction of greatest variance in the data.
-- **PC2:** The second greatest variance, orthogonal to PC1.
+- **PC1 (Principal Component 1):** The direction (linear combination of genes) that captures the greatest variance in the data.
+- **PC2 (Principal Component 2):** The direction orthogonal to PC1 that captures the next greatest variance.
 
 **Points:**  
-- **Each point:** One sample.
-- **Color:** Blue = Healthy, Red = Disease, Gray = Unknown.
+- **Each point:** Represents a single sample from your dataset.
+- **Color:**  
+    - **Blue:** Healthy samples  
+    - **Red:** Disease samples  
+    - **Gray:** Unknown or unclassified samples
+
+**What does this plot show?**  
+- Samples that are close together have similar overall gene expression profiles.
+- If samples from the same group (e.g., all Healthy or all Disease) cluster together, it suggests strong biological differences between groups.
+- Outliers (points far from others) may indicate technical artifacts, mislabeled samples, or unique biology.
 
 **Assumptions:**  
-- PCA is performed on all genes (after normalization).
-- Samples that cluster together have similar expression profiles.
+- PCA is performed on the top N most significant genes (by p-value), as selected by the slider.
+- Data is normalized so that differences reflect biology, not technical variation.
 
 **How to use:**  
-If samples from the same group cluster together, it suggests strong biological differences between groups. Outliers may indicate technical issues.
+- Look for clear separation between groups (Healthy vs. Disease).
+- Investigate outliers or unexpected clustering for possible data quality or biological insights.
             """)
-            expr_df = expression_data.drop(columns=["Symbol"], errors="ignore")
+            num_pca_genes = st.slider("Number of top genes to use for PCA", min_value=10, max_value=100, value=30, step=1)
+            top_pca_indices = results.sort_values("pvalue").head(num_pca_genes).index
+            expr_df = expression_data.loc[top_pca_indices].drop(columns=["Symbol"], errors="ignore")
             plot_pca(expr_df, sample_labels)
 
         # 9. MA Plot
@@ -465,10 +489,18 @@ The MA plot visualizes the relationship between the average expression of each g
 **Axes:**  
 - **X-axis (Mean Expression):** Average expression of each gene across all samples.
 - **Y-axis (logFC):** Log2 fold change between groups.
+-**Positive values**: Higher in Group B (e.g., Disease)
+-**Negative values**: Higher in Group A (e.g., Healthy)
 
 **Points:**  
-- **Red:** Genes with p-value < 0.05 (significant).
-- **Gray:** Not significant.
+- **True**: The gene is statistically significant (p-value < 0.05).
+    These points are colored red
+- **False**: The gene is not statistically significant (p-value ≥ 0.05).
+    These points are colored gray.
+- **How to interpret:**
+    The p-value comes from a statistical test (t-test) comparing gene expression between your two groups.
+    It represents the probability that the observed difference in expression happened by chance.
+    Lower p-values (e.g., < 0.05) mean the difference is unlikely due to random chance and is considered statistically significant.
 
 **Assumptions:**  
 - Genes with low mean expression may have more variable fold changes.
@@ -497,7 +529,6 @@ Look for trends or biases (e.g., are highly expressed genes more likely to be di
             ax.set_xlabel('Mean Expression')
             ax.set_ylabel('log2 Fold Change')
             ax.set_title('MA Plot')
-            ax.legend(title='Significant (p<0.05)', labels=['Not Significant', 'Significant'])
             st.pyplot(fig)
     else:
         st.warning("Please select at least one sample for each group.")
