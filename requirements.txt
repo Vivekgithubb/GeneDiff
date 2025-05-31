@@ -7,4 +7,3 @@ matplotlib
 seaborn
 requests
 scikit-learn
-google-cloud-vision
