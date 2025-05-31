@@ -140,81 +140,36 @@ st.write(f"Selected GEO ID: {geo_id}")
 if geo_id:
     gse, annotation, samples = load_geo(geo_id)
     st.success(f"Loaded {len(samples)} samples from {geo_id}")
-    sample_labels,  group_labels = extract_sample_groups(gse)
-    # for gsm_id, gsm in gse.gsms.items():
-    #     st.write(f"Sample ID: {gsm_id}")
-    #     st.write(gsm.metadata)
-    #     st.write("---")
+    sample_labels, group_labels = extract_sample_groups(gse)
     display_samples = [f"{gsm} ({label})" for gsm, label in group_labels.items()]
+    sample_titles = {gsm.name: gsm.metadata.get("title", ["No title"])[0] for gsm in samples}
 
-    st.write("Samples with dynamic groups:")
-    st.write(display_samples)
-    sample_titles = {}
-    for gsm in samples:
-        title = gsm.metadata.get("title", ["No title"])[0]  # safer access
-        sample_titles[gsm.name] = title
-
- # Build a DataFrame with clickable links
-    md_table = "| Sample ID | Title |\n|---|---|\n"
-    for gsm_id, title in list(sample_titles.items()):
-        url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={gsm_id}"
-        link = f"[{gsm_id}]({url})"
-        md_table += f"| {link} | {title} |\n"
-    st.markdown(md_table, unsafe_allow_html=True)
-    st.subheader("Annotation preview:")
-    st.write("This table shows the annotation data for the GEO dataset, including gene symbols and IDs.")
-    st.write("Each row: Represents a probe (a unique DNA sequence on the chip that measures gene expression).")
-    st.write("Columns: Contain information about the probe, such as its ID, gene symbol, and other metadata.")
-    st.write("ID: The probe ID (e.g., 1552287_at) " )
-    st.write("Gene Symbol: The standard gene name the probe is designed to detect (e.g., TP53) " )
-    st.write("Gene Title/Description: A brief description of the gene " )
-    st.write("Chromosome, Location, etc. Genomic information about where the gene is found" )
-    st.write( " Other columns: May include RefSeq IDs, Ensembl IDs, or other database cross-references")
-    st.dataframe(annotation.head())
-    st.write("In summary: The annotation table is a reference sheet that explains what each probe on the microarray measures, linking probe IDs to gene names and other biological information. It is essential for interpreting your gene expression results in a meaningful, biological context.")
-    # Add group selection widgets
-    st.subheader("Assign Groups")
-    # Correct unpacking
+    # Prepare for group selection
     sample_labels, group_dict = extract_sample_groups(gse)
-
-# sample_labels is dict: {gsm_id: "gsm_id (label)"}
-# group_dict is dict: {label: [gsm_id list]}
-
     display_samples = list(sample_labels.values())
-
     group_a_display = st.multiselect(
         "Select samples for Group A (e.g., Healthy)",
         options=[sample_labels[gsm] for gsm in group_dict.get("Healthy", [])]
     )
-
     group_b_display = st.multiselect(
         "Select samples for Group B (e.g., Disease)",
         options=[sample_labels[gsm] for gsm in group_dict.get("Disease", [])]
     )
-
     def extract_gsm(selected_list):
         return [s.split(" ")[0] for s in selected_list]
-
     group_a = extract_gsm(group_a_display)
     group_b = extract_gsm(group_b_display)
 
-
+    # Only proceed if both groups are selected
     if group_a and group_b:
-        st.write("Extracting expression data...")
-        expression_data = gse.pivot_samples("VALUE")
-        expression_data = expression_data.dropna()
-
-        # Map gene symbols if available
+        expression_data = gse.pivot_samples("VALUE").dropna()
         if "Symbol" in annotation.columns and "ID" in annotation.columns:
             symbol_map = annotation.set_index("ID")["Symbol"]
             expression_data["Symbol"] = expression_data.index.map(symbol_map)
         else:
             expression_data["Symbol"] = "NA"
-
-        st.write("Performing t-test...")
         logfc = expression_data[group_b].mean(axis=1) - expression_data[group_a].mean(axis=1)
         pvals = ttest_ind(expression_data[group_b], expression_data[group_a], axis=1, equal_var=False).pvalue
-
         results = pd.DataFrame({
             "logFC": logfc,
             "pvalue": pvals,
@@ -223,105 +178,92 @@ if geo_id:
         results["-log10(pval)"] = -np.log10(results["pvalue"])
         results = results.dropna()
 
-        st.subheader("Top Differentially Expressed Genes")
-        st.write("What it is:A table showing the top 20 genes (or probes) with the most significant differences in expression between your selected groups (e.g., Healthy vs. Disease).")
-        st.write("logFC: Log fold change (how much the gene’s expression changes between groups)")
-        st.write("pvalue: Statistical significance of the difference")
-        st.write("symbol: Gene symbol (if available)")
-        st.write("-log10(pval): Transformed p-value for easier visualization")
-        st.write("This table helps you quickly identify the most significantly differentially expressed genes between your selected groups.")
-        st.dataframe(results.sort_values("pvalue").head(20))
+        # --- TABS ---
+        tabs = st.tabs([
+            "Sample Metadata", "Annotation Table", "DEG Table", "Volcano Plot",
+            "Heatmap", "Boxplot", "PCA Plot", "MA Plot"
+        ])
 
-        st.subheader("Volcano Plot")
-        st.write("What it is: A scatter plot showing the relationship between log fold change (logFC) and -log10(p-value) for all genes.")
-        st.write("(X-Axis)Genes with high logFC (either positive or negative) and (Y-Axis)low p-value (below 0.05) are considered significantly differentially expressed.")
-        
-        fig, ax = plt.subplots()
-        sns.scatterplot(data=results, x="logFC", y="-log10(pval)", hue=results["pvalue"] < 0.05, ax=ax)
-        plt.axhline(y=-np.log10(0.05), color='red', linestyle='--')
-        st.pyplot(fig)
-        st.write("This plot helps you visualize which genes are significantly differentially expressed based on their fold change and statistical significance.")
-        
-                # --- Heatmap of Differential Expression ---
-        st.subheader("Heatmap of Top Differentially Expressed Genes")
-        st.write(" A heatmap showing the expression levels of the top N differentially expressed genes across all samples.")
-        st.write("This heatmap allows you to visually assess the expression patterns of the most significant genes across your selected samples.")
-        st.write("Rows: Genes/probes")
-        st.write(" Columns: Samples " )
-        st.write("Colors: Z-score normalized expression (red = high, blue = low)")
+        # 1. Sample Metadata
+        with tabs[0]:
+            md_table = "| Sample ID | Title |\n|---|---|\n"
+            for gsm_id, title in list(sample_titles.items()):
+                url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={gsm_id}"
+                link = f"[{gsm_id}]({url})"
+                md_table += f"| {link} | {title} |\n"
+            st.markdown(md_table, unsafe_allow_html=True)
 
+        # 2. Annotation Table
+        with tabs[1]:
+            st.subheader("Annotation preview:")
+            st.write("This table shows the annotation data for the GEO dataset, including gene symbols and IDs.")
+            st.dataframe(annotation.head())
 
-        num_genes = st.slider("Number of top genes to show in heatmap", min_value=10, max_value=50, value=20, step=1)
+        # 3. DEG Table
+        with tabs[2]:
+            st.subheader("Top Differentially Expressed Genes")
+            st.write("A table showing the top 20 genes (or probes) with the most significant differences in expression between your selected groups.")
+            st.dataframe(results.sort_values("pvalue").head(20))
 
-        # Get top N genes by p-value
-# Get top N genes by p-value (use index if symbol is missing)
-        top_gene_indices = results.sort_values("pvalue").head(num_genes).index
-
-        # Get expression data for these genes (use all samples)
-        heatmap_data = expression_data.loc[top_gene_indices]
-
-        # Remove the Symbol column for plotting if it exists
-        if "Symbol" in heatmap_data.columns:
-            heatmap_matrix = heatmap_data.drop(columns=["Symbol"])
-        else:
-            heatmap_matrix = heatmap_data.copy()
-
-        # Z-score normalize each gene (row) for better visualization
-        if not heatmap_matrix.empty:
-            heatmap_matrix = heatmap_matrix.sub(heatmap_matrix.mean(axis=1), axis=0)
-            heatmap_matrix = heatmap_matrix.div(heatmap_matrix.std(axis=1), axis=0)
-            # Set probe IDs as row labels
-            heatmap_matrix.index = top_gene_indices
-
-            fig, ax = plt.subplots(figsize=(min(1.5 + 0.3 * len(heatmap_matrix.columns), 20), min(0.5 * num_genes, 20)))
-            sns.heatmap(heatmap_matrix, cmap="vlag", ax=ax, cbar_kws={'label': 'Z-score'})
-            ax.set_title(f"Top {num_genes} Differentially Expressed Probes (Z-score)")
-            ax.set_xlabel("Sample")
-            ax.set_ylabel("Probe ID")
+        # 4. Volcano Plot
+        with tabs[3]:
+            st.subheader("Volcano Plot")
+            fig, ax = plt.subplots()
+            sns.scatterplot(data=results, x="logFC", y="-log10(pval)", hue=results["pvalue"] < 0.05, ax=ax)
+            plt.axhline(y=-np.log10(0.05), color='red', linestyle='--')
             st.pyplot(fig)
-        else:
-            st.warning("No valid genes found for heatmap. Try increasing the number of top genes or check your data.")
 
-        st.subheader("Boxplot ")
-        st.write("A boxplot showing the distribution of expression values for each selected sample.")
-        st.write("Each box: One sample ")
-        st.write(" Y-axis: Expression value")
-        selected_samples = st.multiselect("Select samples for boxplot", display_samples)
+        # 5. Heatmap
+        with tabs[4]:
+            st.subheader("Heatmap of Top Differentially Expressed Genes")
+            num_genes = st.slider("Number of top genes to show in heatmap", min_value=10, max_value=50, value=20, step=1)
+            top_gene_indices = results.sort_values("pvalue").head(num_genes).index
+            heatmap_data = expression_data.loc[top_gene_indices]
+            if "Symbol" in heatmap_data.columns:
+                heatmap_matrix = heatmap_data.drop(columns=["Symbol"])
+            else:
+                heatmap_matrix = heatmap_data.copy()
+            if not heatmap_matrix.empty:
+                heatmap_matrix = heatmap_matrix.sub(heatmap_matrix.mean(axis=1), axis=0)
+                heatmap_matrix = heatmap_matrix.div(heatmap_matrix.std(axis=1), axis=0)
+                heatmap_matrix.index = top_gene_indices
+                fig, ax = plt.subplots(figsize=(min(1.5 + 0.3 * len(heatmap_matrix.columns), 20), min(0.5 * num_genes, 20)))
+                sns.heatmap(heatmap_matrix, cmap="vlag", ax=ax, cbar_kws={'label': 'Z-score'})
+                ax.set_title(f"Top {num_genes} Differentially Expressed Probes (Z-score)")
+                ax.set_xlabel("Sample")
+                ax.set_ylabel("Probe ID")
+                st.pyplot(fig)
+            else:
+                st.warning("No valid genes found for heatmap. Try increasing the number of top genes or check your data.")
 
-        if selected_samples:
-            selected_samples_clean = [s.split(" (")[0] for s in selected_samples]
-            data_for_plot = expression_data[selected_samples_clean]
-            labels = [sample_labels[gsm] for gsm in selected_samples_clean]
-            st.write(f"Data shape: {data_for_plot.shape}")
-            st.write(f"Number of labels: {len(labels)}")
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.boxplot(data_for_plot.values, labels=labels, vert=True)
-            ax.set_title("Expression Value Distribution per Sample")
-            ax.set_ylabel("Expression Value")
-            ax.set_xlabel("Samples")
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            st.pyplot(fig)
-        else:
-            st.write("Select one or more samples above to see boxplot.")
-        if st.button("Show PCA Plot"):
-                 # Use only numeric columns (samples)
-                st.markdown("### PCA Plot: Sample Clustering")
-                st.write("a PCA plot visually validates whether the samples you selected for " \
-                "Group A (e.g., healthy) and Group B (e.g., disease) are clearly different based on their global gene expression. If they are, it increases confidence in your DEG (Differentially Expressed Genes) results")
-                st.write("This plot shows how samples cluster based on their gene expression profiles using Principal Component Analysis (PCA).")
-                st.write("If healthy and diseased samples cluster separately, it means they have distinct gene expression profiles. If they overlap heavily, the biological difference might be subtle or noisy.")
-                expr_df = expression_data.drop(columns=["Symbol"], errors="ignore")
-                plot_pca(expr_df, sample_labels)
-        if st.button("Show MA Plot"):
-            st.markdown("### MA Plot (logFC vs. Mean Expression)")
-            st.write("This plot shows the relationship between the average expression of each gene and its log fold change between groups. Red points are significantly differentially expressed genes (p < 0.05).")
-            st.write("X-axis: Mean expression across both groups")
-            st.write("Y-axis: log2 fold change (logFC) between groups")
-            st.write("Red points: Significantly differentially expressed genes (p < 0.05)")
-            st.write("This plot helps you visualize how genes differ in expression between your selected groups, focusing on both the magnitude of change and overall expression levels.")
+        # 6. Boxplot
+        with tabs[5]:
+            st.subheader("Boxplot")
+            selected_samples = st.multiselect("Select samples for boxplot", display_samples)
+            if selected_samples:
+                selected_samples_clean = [s.split(" (")[0] for s in selected_samples]
+                data_for_plot = expression_data[selected_samples_clean]
+                labels = [sample_labels[gsm] for gsm in selected_samples_clean]
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.boxplot(data_for_plot.values, labels=labels, vert=True)
+                ax.set_title("Expression Value Distribution per Sample")
+                ax.set_ylabel("Expression Value")
+                ax.set_xlabel("Samples")
+                plt.xticks(rotation=45)
+                plt.tight_layout()
+                st.pyplot(fig)
+            else:
+                st.write("Select one or more samples above to see boxplot.")
 
-            
+        # 7. PCA Plot
+        with tabs[6]:
+            st.subheader("PCA Plot: Sample Clustering")
+            expr_df = expression_data.drop(columns=["Symbol"], errors="ignore")
+            plot_pca(expr_df, sample_labels)
+
+        # 8. MA Plot
+        with tabs[7]:
+            st.subheader("MA Plot (logFC vs. Mean Expression)")
             plot_ma(results, expression_data, group_a, group_b)
     else:
         st.warning("Please select at least one sample for each group.")
