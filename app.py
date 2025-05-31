@@ -12,7 +12,29 @@ from sklearn.decomposition import PCA
 import io
 from google.cloud import vision
 
-
+# st.markdown(
+#     """
+#     <style>
+#     body {
+#         background-color: #ffffff;
+#     }
+#     .main .block-container {
+#         background-color: #ffffff;
+#         border-radius: 12px;
+#         padding: 2rem 2rem 2rem 2rem;
+#         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+#     }
+#     header, .css-18e3th9, .css-1d391kg { 
+#         background-color: #e6f2ff !important;
+#     }
+#     /* Optional: Style the sidebar*/ 
+#     .css-1d391kg {
+#         background-color: #cce0ff !important;
+#     }
+#     </style>
+#     """,
+#     unsafe_allow_html=True
+# )
 # st.title("DEG Analysis from GEO Dataset")
 
 # geo_id = st.text_input("Enter GEO Series ID (e.g., GSE7305)", value="GSE7306")
@@ -130,7 +152,9 @@ geo_options = {
 "Bladder Cancer (GSE109169)": "GSE109169",
 "Prostate Cancer (GSE3325)": "GSE3325"
 }
-selected_label = st.selectbox("Select a GEO Dataset for Analysis", list(geo_options.keys()))
+# Sidebar for dataset selection
+st.sidebar.title("Navigation")
+selected_label = st.sidebar.selectbox("Select a GEO Dataset for Analysis", list(geo_options.keys()))
 geo_id = geo_options[selected_label]
 
 st.write(f"Selected GEO ID: {geo_id}")
@@ -180,12 +204,27 @@ if geo_id:
 
         # --- TABS ---
         tabs = st.tabs([
-            "Sample Metadata", "Annotation Table", "DEG Table", "Volcano Plot",
+            "Sample Metadata", "Sample Groups Overview", "Annotation Table", "DEG Table", "Volcano Plot",
             "Heatmap", "Boxplot", "PCA Plot", "MA Plot"
         ])
 
         # 1. Sample Metadata
         with tabs[0]:
+            st.subheader("Sample Metadata Table (with clickable links)")
+            st.markdown("""
+**Summary:**  
+This section provides a comprehensive overview of all samples in your selected GEO dataset. Each sample is listed with its unique GEO accession ID (which links directly to the GEO database) and its descriptive title.
+
+**Table Columns:**  
+- **Sample ID:** The unique identifier for each sample in GEO. Click to view the sample’s full metadata on the GEO website.
+- **Title:** The descriptive title provided by the original study authors.
+
+**Assumptions:**  
+- Sample titles and IDs are accurate as provided by GEO.
+- Clicking a Sample ID will open the corresponding GEO page in your browser.
+            """)
+
+            # Clickable links table
             md_table = "| Sample ID | Title |\n|---|---|\n"
             for gsm_id, title in list(sample_titles.items()):
                 url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={gsm_id}"
@@ -193,29 +232,144 @@ if geo_id:
                 md_table += f"| {link} | {title} |\n"
             st.markdown(md_table, unsafe_allow_html=True)
 
-        # 2. Annotation Table
+        # 2. Sample Groups Overview
         with tabs[1]:
-            st.subheader("Annotation preview:")
-            st.write("This table shows the annotation data for the GEO dataset, including gene symbols and IDs.")
+            st.subheader("Sample Groups Overview")
+            st.markdown("""
+**Summary:**  
+This table groups all sample IDs by their inferred biological status.
+
+**Groups:**  
+- **Healthy:** Samples labeled as healthy, normal, or control.
+- **Disease/Unhealthy:** Samples labeled as disease, cancer, tumor, or unknown.
+
+**How grouping is determined:**  
+- If the sample label contains "Healthy", it is classified as Healthy.
+- All other samples are classified as Unhealthy.
+
+**Assumptions:**  
+- The group assignment is based on keyword matching in sample metadata.
+- Some samples may be misclassified if their metadata is ambiguous.
+            """)
+            # Grouped sample IDs table
+            group_dict_display = {"Healthy": [], "Unhealthy": []}
+            for gsm_id, label in sample_labels.items():
+                if "Healthy" in label:
+                    group_dict_display["Healthy"].append(gsm_id)
+                else:
+                    group_dict_display["Unhealthy"].append(gsm_id)
+
+            group_md = "| Group | Sample IDs |\n|---|---|\n"
+            for group, ids in group_dict_display.items():
+                if ids:
+                    id_links = ", ".join([f"[{gsm_id}](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={gsm_id})" for gsm_id in ids])
+                    group_md += f"| {group} | {id_links} |\n"
+            st.markdown(group_md, unsafe_allow_html=True)
+
+        # 3. Annotation Table
+        with tabs[2]:
+            st.subheader("Annotation Table Preview")
+            st.markdown("""
+**Summary:**  
+The annotation table links each probe (measurement spot on the microarray) to biological information such as gene names and genomic locations.
+
+**Table Columns (may vary by platform):**  
+- **ID:** The probe identifier (unique for each spot on the array).
+- **Symbol:** The gene symbol (e.g., TP53) that the probe measures.
+- **Other columns:** May include gene title, chromosome, or database cross-references.
+
+**Assumptions:**  
+- The mapping between probe IDs and gene symbols is correct as provided by the platform annotation.
+- Some probes may not map to a known gene (symbol may be NA).
+
+**Why this matters:**  
+This table is essential for interpreting your results in terms of real genes and their biological functions.
+            """)
             st.dataframe(annotation.head())
 
-        # 3. DEG Table
-        with tabs[2]:
+        # 4. DEG Table
+        with tabs[3]:
             st.subheader("Top Differentially Expressed Genes")
-            st.write("A table showing the top 20 genes (or probes) with the most significant differences in expression between your selected groups.")
+            st.markdown("""
+**Summary:**  
+This table lists the top 20 genes (or probes) with the most statistically significant differences in expression between your selected groups.
+
+**Table Columns:**  
+- **logFC (Log2 Fold Change):**  
+  - The log2 ratio of average expression between Group B (e.g., Disease) and Group A (e.g., Healthy).
+  - Positive values: Higher in Group B; Negative: Higher in Group A.
+- **pvalue:**  
+  - The probability that the observed difference is due to random chance (from a t-test).
+  - Lower values indicate more significant differences.
+- **symbol:**  
+  - The gene symbol for each probe.
+- **-log10(pval):**  
+  - The negative log10 of the p-value, used for easier visualization (higher = more significant).
+
+**Assumptions:**  
+- Expression values are approximately normally distributed for each gene.
+- The t-test is appropriate for comparing the two groups.
+- Multiple testing correction is not shown here (raw p-values).
+
+**How to use:**  
+Focus on genes with large absolute logFC and low p-values for biological interpretation.
+            """)
             st.dataframe(results.sort_values("pvalue").head(20))
 
-        # 4. Volcano Plot
-        with tabs[3]:
+        # 5. Volcano Plot
+        with tabs[4]:
             st.subheader("Volcano Plot")
+            st.markdown("""
+**Summary:**  
+The volcano plot visualizes both the magnitude of change and the statistical significance for all genes.
+
+**Axes:**  
+- **X-axis (logFC):**  
+  - Log2 fold change between groups.
+  - Positive: Higher in Group B (e.g., Disease).
+  - Negative: Higher in Group A (e.g., Healthy).
+- **Y-axis (-log10(p-value)):**  
+  - The negative log10 of the p-value.
+  - Higher values = more statistically significant.
+
+**Colors:**  
+- **Red points:** Genes with p-value < 0.05 (statistically significant).
+- **Gray points:** Genes not meeting the significance threshold.
+
+**Assumptions:**  
+- Each gene is tested independently.
+- The p-value threshold (0.05) is used for significance, but multiple testing correction is not applied here.
+
+**How to use:**  
+Genes far from zero on the x-axis and high on the y-axis are the most interesting (large, significant changes).
+            """)
             fig, ax = plt.subplots()
             sns.scatterplot(data=results, x="logFC", y="-log10(pval)", hue=results["pvalue"] < 0.05, ax=ax)
             plt.axhline(y=-np.log10(0.05), color='red', linestyle='--')
             st.pyplot(fig)
 
-        # 5. Heatmap
-        with tabs[4]:
+        # 6. Heatmap
+        with tabs[5]:
             st.subheader("Heatmap of Top Differentially Expressed Genes")
+            st.markdown("""
+**Summary:**  
+This heatmap shows the expression patterns of the top N most differentially expressed genes across all samples.
+
+**Axes:**  
+- **Rows:** Genes/probes (top N by significance).
+- **Columns:** Samples.
+
+**Colors:**  
+- **Red:** Higher-than-average expression (Z-score > 0).
+- **Blue:** Lower-than-average expression (Z-score < 0).
+
+**Assumptions:**  
+- Expression values are Z-score normalized for each gene (row).
+- Only the top N genes (by p-value) are shown for clarity.
+
+**How to use:**  
+Look for clusters of samples or genes with similar expression patterns. Grouped clustering may indicate strong biological differences.
+            """)
             num_genes = st.slider("Number of top genes to show in heatmap", min_value=10, max_value=50, value=20, step=1)
             top_gene_indices = results.sort_values("pvalue").head(num_genes).index
             heatmap_data = expression_data.loc[top_gene_indices]
@@ -236,9 +390,30 @@ if geo_id:
             else:
                 st.warning("No valid genes found for heatmap. Try increasing the number of top genes or check your data.")
 
-        # 6. Boxplot
-        with tabs[5]:
+        # 7. Boxplot
+        with tabs[6]:
             st.subheader("Boxplot")
+            st.markdown("""
+**Summary:**  
+The boxplot displays the distribution of expression values for each selected sample.
+
+**Axes:**  
+- **X-axis:** Selected samples (each box is one sample).
+- **Y-axis:** Expression value for all genes in that sample.
+
+**Boxplot elements:**  
+- **Box:** Interquartile range (middle 50% of values).
+- **Line in box:** Median expression value.
+- **Whiskers:** Range of most values (excluding outliers).
+- **Dots:** Outlier values.
+
+**Assumptions:**  
+- Expression values are comparable across samples.
+- Outliers may indicate technical artifacts or true biological variation.
+
+**How to use:**  
+Compare the spread and median of each sample. Large differences may indicate batch effects or sample quality issues.
+            """)
             selected_samples = st.multiselect("Select samples for boxplot", display_samples)
             if selected_samples:
                 selected_samples_clean = [s.split(" (")[0] for s in selected_samples]
@@ -255,15 +430,74 @@ if geo_id:
             else:
                 st.write("Select one or more samples above to see boxplot.")
 
-        # 7. PCA Plot
-        with tabs[6]:
+        # 8. PCA Plot
+        with tabs[7]:
             st.subheader("PCA Plot: Sample Clustering")
+            st.markdown("""
+**Summary:**  
+Principal Component Analysis (PCA) reduces the complexity of the data to visualize how samples cluster based on their overall gene expression.
+
+**Axes:**  
+- **PC1:** The direction of greatest variance in the data.
+- **PC2:** The second greatest variance, orthogonal to PC1.
+
+**Points:**  
+- **Each point:** One sample.
+- **Color:** Blue = Healthy, Red = Disease, Gray = Unknown.
+
+**Assumptions:**  
+- PCA is performed on all genes (after normalization).
+- Samples that cluster together have similar expression profiles.
+
+**How to use:**  
+If samples from the same group cluster together, it suggests strong biological differences between groups. Outliers may indicate technical issues.
+            """)
             expr_df = expression_data.drop(columns=["Symbol"], errors="ignore")
             plot_pca(expr_df, sample_labels)
 
-        # 8. MA Plot
-        with tabs[7]:
+        # 9. MA Plot
+        with tabs[8]:
             st.subheader("MA Plot (logFC vs. Mean Expression)")
-            plot_ma(results, expression_data, group_a, group_b)
+            st.markdown("""
+**Summary:**  
+The MA plot visualizes the relationship between the average expression of each gene and its log fold change between groups.
+
+**Axes:**  
+- **X-axis (Mean Expression):** Average expression of each gene across all samples.
+- **Y-axis (logFC):** Log2 fold change between groups.
+
+**Points:**  
+- **Red:** Genes with p-value < 0.05 (significant).
+- **Gray:** Not significant.
+
+**Assumptions:**  
+- Genes with low mean expression may have more variable fold changes.
+- The t-test is used for significance.
+
+**How to use:**  
+Look for trends or biases (e.g., are highly expressed genes more likely to be differentially expressed?). Outliers may be of biological interest.
+            """)
+            mean_group_a = expression_data[group_a].mean(axis=1)
+            mean_group_b = expression_data[group_b].mean(axis=1)
+            mean_expr = (mean_group_a + mean_group_b) / 2
+
+            ma_df = results.copy()
+            ma_df['mean_expr'] = mean_expr
+
+            fig, ax = plt.subplots()
+            sns.scatterplot(
+                data=ma_df,
+                x='mean_expr',
+                y='logFC',
+                hue=ma_df['pvalue'] < 0.05,
+                palette={True: 'red', False: 'gray'},
+                ax=ax
+            )
+            ax.axhline(0, color='black', linestyle='--')
+            ax.set_xlabel('Mean Expression')
+            ax.set_ylabel('log2 Fold Change')
+            ax.set_title('MA Plot')
+            ax.legend(title='Significant (p<0.05)', labels=['Not Significant', 'Significant'])
+            st.pyplot(fig)
     else:
         st.warning("Please select at least one sample for each group.")
