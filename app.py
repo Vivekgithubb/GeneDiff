@@ -9,8 +9,7 @@ import os
 import requests
 from geo_public import extract_sample_groups
 from sklearn.decomposition import PCA
-import io
-from google.cloud import vision
+
 
 # st.markdown(
 #     """
