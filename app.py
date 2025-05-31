@@ -8,6 +8,7 @@ import seaborn as sns
 import os
 import requests
 from geo_public import extract_sample_groups
+from sklearn.decomposition import PCA
 import io
 from google.cloud import vision
 
@@ -32,6 +33,27 @@ from google.cloud import vision
 #     return gse, annotation, samples
 
 # gse, annotation, samples = load_geo(geo_id)
+
+def plot_pca(expr_df, sample_labels):
+    pca = PCA(n_components=2)
+    pca_result = pca.fit_transform(expr_df.T)
+    pca_df = pd.DataFrame(pca_result, columns=['PC1', 'PC2'])
+    pca_df['Sample'] = expr_df.columns
+    # Extract group ("Healthy", "Disease", "Unknown") from sample_labels
+    def extract_group(label):
+        if "Healthy" in label:
+            return "Healthy"
+        elif "Disease" in label:
+            return "Disease"
+        else:
+            return "Unknown"
+    pca_df['Group'] = pca_df['Sample'].map(lambda x: extract_group(sample_labels.get(x, "")))
+    palette = {"Healthy": "blue", "Disease": "red", "Unknown": "gray"}
+    fig, ax = plt.subplots()
+    sns.scatterplot(data=pca_df, x='PC1', y='PC2', hue='Group',palette=palette, s=50, ax=ax)
+    ax.set_title('PCA of Samples')
+    ax.legend(fontsize=8, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+    st.pyplot(fig)
 
 @st.cache_data
 def load_geo(geo_id):
@@ -103,9 +125,9 @@ if geo_id:
     # st.write("Samples with dynamic groups:")
     # st.write(display_samples)
     sample_titles = {}
-    for gsm in samples:
-        title = gsm.metadata.get("title", ["No title"])[0]  # safer access
-        sample_titles[gsm.name] = title
+    # for gsm in samples:
+    #     title = gsm.metadata.get("title", ["No title"])[0]  # safer access
+    #     sample_titles[gsm.name] = title
 
     # Build markdown table with clickable sample IDs linking to GEO page
     md_table = "| Sample ID | Title |\n|---|---|\n"
@@ -230,6 +252,7 @@ if geo_id:
         #     plt.xticks(rotation=45)
         #     plt.tight_layout()
         #     st.pyplot(fig)
+
         if selected_samples:
             selected_samples_clean = [s.split(" (")[0] for s in selected_samples]
             data_for_plot = expression_data[selected_samples_clean]
@@ -246,5 +269,11 @@ if geo_id:
             st.pyplot(fig)
         else:
             st.write("Select one or more samples above to see boxplot.")
+        if st.button("Show PCA Plot"):
+                 # Use only numeric columns (samples)
+                st.markdown("### PCA Plot: Sample Clustering")
+                st.write("This plot shows how samples cluster based on their gene expression profiles using Principal Component Analysis (PCA).")
+                expr_df = expression_data.drop(columns=["Symbol"], errors="ignore")
+                plot_pca(expr_df, sample_labels)
     else:
         st.warning("Please select at least one sample for each group.")
